@@ -2,7 +2,7 @@
 
 ObjC runtime method swizzle inside `amfid` to bypass AMFI code signature validation for ad-hoc signed binaries in allowlisted directories.
 
-> **Requires**: macOS arm64 with SIP disabled (`csrutil disable`), root access.
+> **Requires**: macOS arm64 with debugging enabled (`csrutil enable --without debug`), root access.
 
 ## Install
 
@@ -167,7 +167,7 @@ docs/
 ## Limitations
 
 - **Does not bypass kernel AMFI** — restricted entitlements requiring Apple signing are rejected by the kernel before amfid is consulted.
-- **SIP must be disabled** — `task_for_pid` on system daemons requires root + SIP off.
+- **Requires debug permission** — `task_for_pid` on system daemons requires root + `csrutil enable --without debug`.
 - **Does not persist across amfid restarts** — reboot or `killall amfid` requires re-injection (`CS_DEBUGGED` dies with the process).
 
 ## Acknowledgements
