@@ -10,7 +10,7 @@ OBJS    = $(patsubst src/%.c,$(BUILD)/%.o,$(SRCS))
 
 .PHONY: all shellcode test clean
 
-all: $(BIN)/inject $(BIN)/test_ent
+all: $(BIN)/amfree $(BIN)/test_ent
 
 $(BUILD) $(BIN):
 	@mkdir -p $@
@@ -34,7 +34,7 @@ $(BUILD)/%.o: src/%.c $(BUILD)/hook.o | $(BUILD)
 	$(CC) $(CFLAGS) -DSLOT_DATA_PAGE_PTR=$$DP_OFFSET -DIVAR_CODE_OFFSET=$(IVAR_CODE_OFFSET) -c $< -o $@
 
 # --- Link ---
-$(BIN)/inject: $(OBJS) $(BUILD)/hook.o | $(BIN)
+$(BIN)/amfree: $(OBJS) $(BUILD)/hook.o | $(BIN)
 	$(CC) $(CFLAGS) -lobjc -o $@ $^
 
 $(BIN)/test_ent: tests/test_entitlements.c | $(BIN)
@@ -44,7 +44,7 @@ $(BIN)/test_ent: tests/test_entitlements.c | $(BIN)
 shellcode: $(BUILD)/hook.o
 	@size -m $< | grep inject
 
-test: $(BIN)/inject $(BIN)/test_ent
+test: $(BIN)/amfree $(BIN)/test_ent
 	@echo "=== Restarting amfid ==="
 	@sudo killall -9 debugserver 2>/dev/null || true
 	@sleep 1
@@ -52,7 +52,7 @@ test: $(BIN)/inject $(BIN)/test_ent
 	@sudo launchctl kickstart -k system/com.apple.MobileFileIntegrity
 	@pgrep -x amfid > /dev/null 2>&1 || { echo "[FATAL] amfid did not restart"; exit 1; }
 	@echo "=== Injecting ==="
-	sudo $(BIN)/inject
+	sudo $(BIN)/amfree
 	@echo "=== Testing ==="
 	@$(BIN)/test_ent && echo "[PASS]" || echo "[FAIL] $$?"
 	@pgrep -x amfid > /dev/null && echo "[OK] amfid alive" || echo "[FAIL] amfid dead"

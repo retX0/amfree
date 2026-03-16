@@ -8,11 +8,11 @@ ObjC runtime method swizzle inside `amfid` to bypass AMFI code signature validat
 
 ```bash
 make
-sudo bin/inject --path /path/to/your/project/
+sudo bin/amfree --path /path/to/your/project/
 bin/test_ent    # should run (has private entitlements)
 
 # verbose output
-sudo bin/inject -v --path /path/to/project/
+sudo bin/amfree -v --path /path/to/project/
 ```
 
 ## Background: How macOS Code Signing Works
@@ -120,11 +120,11 @@ Similarly, `SLOT_DATA_PAGE_PTR` (the offset of the data-page pointer inside the 
 
 ```bash
 # CLI flags (preferred)
-sudo bin/inject --path /Users/me/dev/ --path /opt/tools/
+sudo bin/amfree --path /Users/me/dev/ --path /opt/tools/
 
 # File-based fallback (if no --path given)
 echo "/Users/me/dev/" > /tmp/amfid_allowlist
-sudo bin/inject
+sudo bin/amfree
 ```
 
 Paths are matched as **prefixes** — a binary at `/Users/me/dev/foo/bar` matches the entry `/Users/me/dev/`.
