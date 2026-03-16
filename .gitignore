@@ -1,0 +1,36 @@
+# Build artifacts
+build/
+*.o
+*.dSYM/
+
+# Compiled binaries
+bin/
+
+# IDA Pro database files
+*.id0
+*.id1
+*.id2
+*.nam
+*.til
+*.idb
+*.i64
+
+# macOS
+.DS_Store
+
+# Temporary test binaries
+test_imp*
+test_objc*
+test_blr*
+test_disc*
+test_pac*
+test_setup*
+test_raw*
+setup.bin
+
+# Editor
+.vscode/
+
+
+# Notes
+notes/
