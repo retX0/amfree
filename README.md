@@ -85,7 +85,7 @@ We solve this by executing `paciza` on our code page address **inside amfid's co
 
 ### The CS_DEBUGGED requirement
 
-Our hook code lives on a `mach_vm_allocate`'d page — it has no code signature. Normally the kernel would refuse to execute unsigned pages in amfid. The `CS_DEBUGGED` flag (set when debugserver attaches) tells the kernel to allow execution of unsigned code pages. This means debugserver must stay attached for the hook to keep working.
+Our hook code lives on a `mach_vm_allocate`'d page — it has no code signature. Normally the kernel would refuse to execute unsigned pages in amfid. The `CS_DEBUGGED` flag (set when debugserver attaches) tells the kernel to allow execution of unsigned code pages. This flag is **sticky** in XNU — `ptrace(PT_DETACH)` does not clear it, so debugserver is detached and killed after hook installation.
 
 ### Build-time offset extraction
 
@@ -104,7 +104,7 @@ Similarly, `SLOT_DATA_PAGE_PTR` (the offset of the data-page pointer inside the 
 5. Spawn debugserver     Attach to amfid → sets CS_DEBUGGED
 6. Thread hijack         RSP protocol: save regs → set pc to setup code
 7. Setup code runs       paciza(code_page) → class_replaceMethod → brk
-8. Finalize              Read return value → restore regs → resume amfid
+8. Finalize              Read return value → restore regs → detach+kill debugserver
 ```
 
 ## Memory Layout
@@ -168,8 +168,7 @@ docs/
 
 - **Does not bypass kernel AMFI** — restricted entitlements requiring Apple signing are rejected by the kernel before amfid is consulted.
 - **SIP must be disabled** — `task_for_pid` on system daemons requires root + SIP off.
-- **debugserver must stay alive** — killing it removes `CS_DEBUGGED`, and the hook's unsigned code page becomes non-executable.
-- **Does not persist across amfid restarts** — reboot or `killall amfid` requires re-injection.
+- **Does not persist across amfid restarts** — reboot or `killall amfid` requires re-injection (`CS_DEBUGGED` dies with the process).
 
 ## Acknowledgements
 

@@ -64,7 +64,7 @@ int hijack_and_install(inject_ctx_t *ctx, pid_t ds_pid) {
   char *reply = rsp_recv(sock, rsp_buf, sizeof(rsp_buf));
   if (!reply || reply[0] != 'T') {
     fprintf(stderr, "[-] stop query failed\n");
-    goto fail;
+    goto cleanup;
   }
   VLOG("[*] amfid stopped\n");
 
@@ -73,7 +73,7 @@ int hijack_and_install(inject_ctx_t *ctx, pid_t ds_pid) {
   char *saved_regs = rsp_recv(sock, rsp_buf, sizeof(rsp_buf));
   if (!saved_regs) {
     fprintf(stderr, "[-] read regs failed\n");
-    goto fail;
+    goto cleanup;
   }
   saved_copy = strdup(saved_regs);
 
@@ -82,7 +82,7 @@ int hijack_and_install(inject_ctx_t *ctx, pid_t ds_pid) {
                                   ctx->type_enc, strlen(ctx->type_enc) + 1);
   if (kr != KERN_SUCCESS) {
     fprintf(stderr, "[-] write type_enc failed\n");
-    goto fail;
+    goto cleanup;
   }
 
   /* Set registers for class_replaceMethod(cls, sel, imp, types) */
@@ -101,7 +101,7 @@ int hijack_and_install(inject_ctx_t *ctx, pid_t ds_pid) {
   reply = rsp_recv(sock, rsp_buf, sizeof(rsp_buf));
   if (!reply) {
     fprintf(stderr, "[-] no stop reply\n");
-    goto fail;
+    goto cleanup;
   }
 
   /* Verify we stopped at BRK */
@@ -122,27 +122,13 @@ int hijack_and_install(inject_ctx_t *ctx, pid_t ds_pid) {
   kr = remote_write(ctx->task, ctx->data_page + DP_ORIG_IMP, &ctx->orig_imp, sizeof(ctx->orig_imp));
   if (kr != KERN_SUCCESS) {
     fprintf(stderr, "[-] write old IMP failed\n");
-    goto fail;
+    goto cleanup;
   }
 
-  /* Restore registers */
-  {
-    size_t gl = 1 + strlen(saved_copy) + 1;
-    char *gcmd = malloc(gl);
-    snprintf(gcmd, gl, "G%s", saved_copy);
-    rsp_send(sock, gcmd);
-    free(gcmd);
-    rsp_recv(sock, rsp_buf, sizeof(rsp_buf));
-  }
-
-  /* Resume amfid (keep debugserver for CS_DEBUGGED) */
-  rsp_send(sock, "c");
-  VLOG("[*] resumed amfid\n");
   ret = 0;
-  goto done;
 
-fail:
-  /* Restore registers on failure */
+cleanup:
+  /* Restore registers */
   if (saved_copy) {
     size_t gl = 1 + strlen(saved_copy) + 1;
     char *gcmd = malloc(gl);
@@ -151,12 +137,16 @@ fail:
     free(gcmd);
     rsp_recv(sock, rsp_buf, sizeof(rsp_buf));
   }
+
+  /* Detach + kill debugserver.
+   * CS_DEBUGGED is a sticky flag in XNU — ptrace(PT_DETACH)
+   * does not clear it, so the hook remains executable. */
   rsp_send(sock, "D");
   rsp_recv(sock, rsp_buf, sizeof(rsp_buf));
   kill(ds_pid, SIGKILL);
   waitpid(ds_pid, NULL, 0);
+  VLOG("[*] debugserver detached and killed\n");
 
-done:
   free(saved_copy);
   close(sock);
   return ret;
