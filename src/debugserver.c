@@ -14,15 +14,49 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-#define DEBUGSERVER_PATH                                                       \
-  "/Applications/Xcode.app/Contents/SharedFrameworks/"                         \
-  "LLDB.framework/Versions/A/Resources/debugserver"
+#define DEBUGSERVER_SUFFIX                                                     \
+  "SharedFrameworks/LLDB.framework/Versions/A/Resources/debugserver"
+
+#define DEBUGSERVER_FALLBACK                                                   \
+  "/Applications/Xcode.app/Contents/" DEBUGSERVER_SUFFIX
 
 #define RSP_PORT 23479
 
+/* Resolve debugserver from the active Xcode, falling back to the hardcoded path. */
+static int resolve_debugserver(char *path, size_t path_sz) {
+  char developer_dir[1024];
+  int wrote;
+  FILE *fp = popen("/usr/bin/xcode-select -p 2>/dev/null", "r");
+  if (fp) {
+    int got = fgets(developer_dir, sizeof(developer_dir), fp) != NULL;
+    pclose(fp);
+
+    if (got) {
+      developer_dir[strcspn(developer_dir, "\n")] = '\0';
+      wrote = snprintf(path, path_sz, "%s/../%s", developer_dir, DEBUGSERVER_SUFFIX);
+      if (wrote >= 0 && (size_t)wrote < path_sz && access(path, X_OK) == 0)
+        return 0;
+    }
+  }
+
+  wrote = snprintf(path, path_sz, "%s", DEBUGSERVER_FALLBACK);
+  if (wrote < 0 || (size_t)wrote >= path_sz)
+    return -1;
+
+  return access(path, X_OK) == 0 ? 0 : -1;
+}
+
 /* ==== Step 4: Spawn debugserver ==== */
 int spawn_debugserver(inject_ctx_t *ctx, pid_t *ds_pid) {
+  char ds_path[1024];
   char pid_arg[32], port_arg[32];
+  if (resolve_debugserver(ds_path, sizeof(ds_path)) < 0) {
+    fprintf(stderr,
+            "[-] could not locate executable debugserver (last checked: %s)\n",
+            ds_path);
+    return -1;
+  }
+
   snprintf(pid_arg, sizeof(pid_arg), "--attach=%d", ctx->pid);
   snprintf(port_arg, sizeof(port_arg), "localhost:%d", RSP_PORT);
 
@@ -32,7 +66,7 @@ int spawn_debugserver(inject_ctx_t *ctx, pid_t *ds_pid) {
     dup2(devnull, STDOUT_FILENO);
     dup2(devnull, STDERR_FILENO);
     close(devnull);
-    execl(DEBUGSERVER_PATH, "debugserver", port_arg, pid_arg, NULL);
+    execl(ds_path, "debugserver", port_arg, pid_arg, NULL);
     _exit(127);
   }
   if (*ds_pid < 0) {
