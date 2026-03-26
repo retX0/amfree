@@ -114,11 +114,13 @@ int build_code_page(inject_ctx_t *ctx, const char *allowlist, size_t al_len) {
   }
 
   /* Write API function pointers to data page */
+  uint64_t addr_origImp  = (uint64_t)ctx->orig_imp;
   uint64_t addr_copyPath = (uint64_t)dlsym(RTLD_DEFAULT, "SecCodeCopyPath");
   uint64_t addr_getRep   = (uint64_t)dlsym(RTLD_DEFAULT, "CFURLGetFileSystemRepresentation");
   uint64_t addr_release  = (uint64_t)dlsym(RTLD_DEFAULT, "CFRelease");
 
-  kr  = remote_write(ctx->task, ctx->data_page + DP_SEC_COPY_PATH, &addr_copyPath, 8);
+  kr  = remote_write(ctx->task, ctx->data_page + DP_ORIG_IMP, &addr_origImp, 8);
+  kr |= remote_write(ctx->task, ctx->data_page + DP_SEC_COPY_PATH, &addr_copyPath, 8);
   kr |= remote_write(ctx->task, ctx->data_page + DP_URL_GET_REP, &addr_getRep, 8);
   kr |= remote_write(ctx->task, ctx->data_page + DP_CF_RELEASE, &addr_release, 8);
   if (kr != KERN_SUCCESS) {

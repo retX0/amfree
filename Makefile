@@ -52,7 +52,7 @@ test: $(BIN)/amfree $(BIN)/test_ent
 	@sudo launchctl kickstart -k system/com.apple.MobileFileIntegrity
 	@pgrep -x amfid > /dev/null 2>&1 || { echo "[FATAL] amfid did not restart"; exit 1; }
 	@echo "=== Injecting ==="
-	sudo $(BIN)/amfree --path `pwd`
+	sudo $(BIN)/amfree -v --path `pwd`
 	@echo "=== Testing ==="
 	@$(BIN)/test_ent && echo "[PASS]" || echo "[FAIL] $$?"
 	@pgrep -x amfid > /dev/null && echo "[OK] amfid alive" || echo "[FAIL] amfid dead"
