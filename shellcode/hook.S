@@ -70,12 +70,16 @@ _hook_entry:
     ldr     x16, [x22, #DP_URL_GET_REP]
     blr     x16
 
+    /* Save GetRep result before CFRelease clobbers w0 */
+    str     w0, [sp, #72]
+
     /* Release the URL */
     mov     x0, x24
     ldr     x16, [x22, #DP_CF_RELEASE]
     blr     x16
 
     /* If representation failed, return original */
+    ldr     w0, [sp, #72]
     cbz     w0, _return_result
 
     /* Step 4: Compare path against allowlist.
