@@ -98,18 +98,24 @@ int hijack_and_install(inject_ctx_t *ctx, pid_t ds_pid) {
 
   /* Continue all threads */
   rsp_send(sock, "c");
+
+  /* wait 100ms for class_replaceMethod to finish, then interrupt */
+  usleep(100000);
+  char ctrl_c = 0x03;
+  write(sock, &ctrl_c, 1);
+
   reply = rsp_recv(sock, rsp_buf, sizeof(rsp_buf));
   if (!reply) {
     fprintf(stderr, "[-] no stop reply\n");
     goto cleanup;
   }
 
-  /* Verify we stopped at BRK */
+  /* Verify we stopped at b . */
   rsp_send(sock, "p20");
   reply = rsp_recv(sock, rsp_buf, sizeof(rsp_buf));
   uint64_t stop_pc = reply ? rsp_decode_u64(reply) : 0;
-  uint64_t brk_addr = (uint64_t)ctx->code_page + ctx->brk_offset;
-  VLOG("[*] pc = 0x%llx (brk @ 0x%llx) %s\n", stop_pc, brk_addr,
+  uint64_t brk_addr = (uint64_t)ctx->code_page + ctx->setup_offset + 8;
+  VLOG("[*] pc = 0x%llx (spin @ 0x%llx) %s\n", stop_pc, brk_addr,
        stop_pc == brk_addr ? "OK" : "MISMATCH!");
 
   /* Read return value */
@@ -135,7 +141,8 @@ cleanup:
     snprintf(gcmd, gl, "G%s", saved_copy);
     rsp_send(sock, gcmd);
     free(gcmd);
-    rsp_recv(sock, rsp_buf, sizeof(rsp_buf));
+    char *g_reply = rsp_recv(sock, rsp_buf, sizeof(rsp_buf));
+    VLOG("[*] G reply: %s\n", g_reply ? g_reply : "NULL");
   }
 
   /* Detach + kill debugserver.

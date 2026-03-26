@@ -76,11 +76,11 @@ int build_code_page(inject_ctx_t *ctx, const char *allowlist, size_t al_len) {
   }
   VLOG("[*] hook code: %lu bytes\n", sc_size);
 
-  /* Setup code: paciza + call + trap */
+  /* Setup code: paciza + call + b . */
   uint32_t setup_code[] = {
       0xDAC123E2, /* paciza x2           */
       0xD63F0100, /* blr    x8           */
-      0xD43FDAC0, /* brk    #0xfed6      */
+      0x14000000, /* b      .            */
   };
 
   uint8_t *buf = calloc(1, PAGE_SIZE);
