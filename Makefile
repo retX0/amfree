@@ -44,7 +44,9 @@ $(BIN)/test_ent: tests/test_entitlements.c | $(BIN)
 shellcode: $(BUILD)/hook.o
 	@size -m $< | grep inject
 
-test: $(BIN)/amfree $(BIN)/test_ent
+test: $(BIN)/amfree
+	@rm -f $(BIN)/test_ent
+	@$(MAKE) $(BIN)/test_ent
 	@echo "=== Restarting amfid ==="
 	@sudo killall -9 debugserver 2>/dev/null || true
 	@sleep 1
