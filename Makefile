@@ -16,27 +16,18 @@ all: $(BIN)/amfree $(BIN)/test_ent
 $(BUILD) $(BIN):
 	@mkdir -p $@
 
-# --- Build-time probes ---
-$(BUILD)/probe_ivar: shellcode/probe_ivar.m | $(BUILD)
-	@$(CC) -arch arm64 -lobjc -o $@ $<
-
-$(BUILD)/ivar_offset.mk: $(BUILD)/probe_ivar
-	@echo "IVAR_CODE_OFFSET=$$($(BUILD)/probe_ivar)" > $@
-
--include $(BUILD)/ivar_offset.mk
-
 # --- Hook (assembly trampoline + C body) ---
 $(BUILD)/hook_entry.o: shellcode/hook_entry.S | $(BUILD)
 	$(AS) $(ASFLAGS) -c $< -o $@
 
-$(BUILD)/hook_body.o: shellcode/hook_body.c shellcode/data_layout.h $(BUILD)/ivar_offset.mk | $(BUILD)
-	$(CC) $(CFLAGS) -fno-stack-protector -fno-builtin -DIVAR_CODE_OFFSET=$(IVAR_CODE_OFFSET) -c $< -o $@
+$(BUILD)/hook_body.o: shellcode/hook_body.c shellcode/data_layout.h | $(BUILD)
+	$(CC) $(CFLAGS) -fno-stack-protector -fno-builtin -c $< -o $@
 
 
 
 # --- All C sources ---
-$(BUILD)/%.o: src/%.c $(BUILD)/ivar_offset.mk | $(BUILD)
-	$(CC) $(CFLAGS) -DIVAR_CODE_OFFSET=$(IVAR_CODE_OFFSET) -c $< -o $@
+$(BUILD)/%.o: src/%.c | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
 
 # --- Link (hook_entry.o MUST come before hook_body.o for section order) ---
 $(BIN)/amfree: $(OBJS) $(HOOK_OBJS) | $(BIN)

@@ -112,7 +112,7 @@ hook_body(void *self, void *_cmd, void **err, data_page_t *dp) {
 
   /* 2. Read _code ivar (SecStaticCodeRef) from self */
   SecStaticCodeRef code =
-      *(SecStaticCodeRef *)((char *)self + IVAR_CODE_OFFSET);
+      *(SecStaticCodeRef *)((char *)self + dp->ivar_offset);
   if (!code) {
     LOG("[amfree] _code ivar is NULL");
     return false;

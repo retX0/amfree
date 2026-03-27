@@ -40,6 +40,15 @@ int resolve_objc(inject_ctx_t *ctx) {
   ctx->sel = (uint64_t)sel;
   VLOG("[*] Class: %p  SEL: %p\n", (void *)cls, (void *)sel);
 
+  /* Resolve _code ivar offset at runtime */
+  Ivar ivar = class_getInstanceVariable(cls, "_code");
+  if (!ivar) {
+    fprintf(stderr, "[-] _code ivar not found\n");
+    return -1;
+  }
+  ctx->ivar_offset = ivar_getOffset(ivar);
+  VLOG("[*] _code ivar offset: %td\n", ctx->ivar_offset);
+
   ctx->type_enc = method_getTypeEncoding(method);
   VLOG("[*] type encoding: %s\n", ctx->type_enc);
 
@@ -120,9 +129,12 @@ int build_code_page(inject_ctx_t *ctx, const char *allowlist, size_t al_len) {
   uint64_t addr_dlsym   = (uint64_t)ptrauth_strip(dlsym(RTLD_DEFAULT, "dlsym"), ptrauth_key_function_pointer);
   uint64_t val_verbose  = (uint64_t)g_verbose;
 
-  kr  = remote_write(ctx->task, ctx->data_page + DP_OFF(orig_imp), &addr_origImp, 8);
-  kr |= remote_write(ctx->task, ctx->data_page + DP_OFF(dlsym),    &addr_dlsym, 8);
-  kr |= remote_write(ctx->task, ctx->data_page + DP_OFF(verbose),  &val_verbose, 8);
+  uint64_t val_ivar_off = (uint64_t)ctx->ivar_offset;
+
+  kr  = remote_write(ctx->task, ctx->data_page + DP_OFF(orig_imp),     &addr_origImp,  8);
+  kr |= remote_write(ctx->task, ctx->data_page + DP_OFF(dlsym),        &addr_dlsym,    8);
+  kr |= remote_write(ctx->task, ctx->data_page + DP_OFF(verbose),      &val_verbose,   8);
+  kr |= remote_write(ctx->task, ctx->data_page + DP_OFF(ivar_offset),  &val_ivar_off,  8);
   if (kr != KERN_SUCCESS) {
     fprintf(stderr, "[-] failed to write API ptrs\n");
     free(buf);

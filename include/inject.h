@@ -27,6 +27,7 @@ typedef struct {
   uint64_t cls;           /* AMFIPathValidator_macos class ptr */
   uint64_t sel;           /* validateWithError: selector */
   uint64_t orig_imp;      /* original IMP address */
+  ptrdiff_t ivar_offset;  /* _code ivar offset, resolved at runtime */
   const char *type_enc;   /* method type encoding */
   void *fn_replace;       /* class_replaceMethod function ptr */
 
