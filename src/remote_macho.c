@@ -3,6 +3,7 @@
 
 #include <dlfcn.h>
 #include <objc/runtime.h>
+#include <ptrauth.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -65,7 +66,9 @@ mach_vm_address_t find_method_imp(mach_port_t task,
         return 0;
     }
 
-    IMP imp = method_getImplementation(m);
+    /* Strip PAC signature — the hook code runs via plain BLR, not BLRAA,
+       so the stored IMP must be a clean (unsigned) pointer. */
+    IMP imp = ptrauth_strip(method_getImplementation(m), ptrauth_key_function_pointer);
 
     if (dylib_base_out) {
         Dl_info info;

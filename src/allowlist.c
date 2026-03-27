@@ -49,8 +49,8 @@ int allowlist_list(void) {
   }
 
   uint64_t al_ptr = 0, al_size = 0;
-  remote_read(task, st.data_page + DP_ALLOWLIST_PTR, &al_ptr, 8);
-  remote_read(task, st.data_page + DP_ALLOWLIST_SIZE, &al_size, 8);
+  remote_read(task, st.data_page + DP_OFF(allowlist_ptr), &al_ptr, 8);
+  remote_read(task, st.data_page + DP_OFF(allowlist_size), &al_size, 8);
 
   if (!al_ptr || !al_size) {
     printf("(no paths in allowlist)\n");
@@ -87,8 +87,8 @@ int allowlist_update(hook_state_t *st, const char *new_paths, size_t new_len) {
 
   /* Read existing allowlist */
   uint64_t old_ptr = 0, old_size = 0;
-  remote_read(task, st->data_page + DP_ALLOWLIST_PTR, &old_ptr, 8);
-  remote_read(task, st->data_page + DP_ALLOWLIST_SIZE, &old_size, 8);
+  remote_read(task, st->data_page + DP_OFF(allowlist_ptr), &old_ptr, 8);
+  remote_read(task, st->data_page + DP_OFF(allowlist_size), &old_size, 8);
 
   /* Merge: existing + new */
   size_t merged_len = old_size + new_len;
@@ -115,8 +115,8 @@ int allowlist_update(hook_state_t *st, const char *new_paths, size_t new_len) {
 
   /* Update data page pointers */
   uint64_t sz = merged_len;
-  remote_write(task, st->data_page + DP_ALLOWLIST_PTR, &new_page, 8);
-  remote_write(task, st->data_page + DP_ALLOWLIST_SIZE, &sz, 8);
+  remote_write(task, st->data_page + DP_OFF(allowlist_ptr), &new_page, 8);
+  remote_write(task, st->data_page + DP_OFF(allowlist_size), &sz, 8);
 
   printf("[+] allowlist updated (pid %d, %zu bytes)\n", st->pid, merged_len);
   return 0;

@@ -6,6 +6,7 @@
 #include "mach_utils.h"
 
 #include <dlfcn.h>
+#include <ptrauth.h>
 #include <fcntl.h>
 #include <mach-o/getsect.h>
 #include <objc/runtime.h>
@@ -89,9 +90,10 @@ int build_code_page(inject_ctx_t *ctx, const char *allowlist, size_t al_len) {
   ctx->brk_offset = ctx->setup_offset + 2 * 4;
   memcpy(buf + ctx->setup_offset, setup_code, sizeof(setup_code));
 
-  /* Patch data_page pointer slot */
+  /* Compute data_page pointer slot offset at runtime */
+  size_t dp_slot_off = (uint8_t *)&_dp_slot - sc_template;
   uint64_t slot_dp = (uint64_t)ctx->data_page;
-  memcpy(buf + SLOT_DATA_PAGE_PTR, &slot_dp, 8);
+  memcpy(buf + dp_slot_off, &slot_dp, 8);
 
   /* Patch LDR instruction with correct offset */
   {
@@ -107,22 +109,20 @@ int build_code_page(inject_ctx_t *ctx, const char *allowlist, size_t al_len) {
       free(buf);
       return -1;
     }
-    uint32_t imm12 = (uint32_t)(SLOT_DATA_PAGE_PTR / 8);
+    uint32_t imm12 = (uint32_t)(dp_slot_off / 8);
     uint32_t ldr_instr = sentinel | (imm12 << 10);
     memcpy(buf + ldr_off, &ldr_instr, 4);
     VLOG("[*] patched LDR at 0x%zx: imm12=%u\n", ldr_off, imm12);
   }
 
-  /* Write API function pointers to data page */
-  uint64_t addr_origImp  = (uint64_t)ctx->orig_imp;
-  uint64_t addr_copyPath = (uint64_t)dlsym(RTLD_DEFAULT, "SecCodeCopyPath");
-  uint64_t addr_getRep   = (uint64_t)dlsym(RTLD_DEFAULT, "CFURLGetFileSystemRepresentation");
-  uint64_t addr_release  = (uint64_t)dlsym(RTLD_DEFAULT, "CFRelease");
+  /* Write function pointers + flags to data page */
+  uint64_t addr_origImp = (uint64_t)ctx->orig_imp;
+  uint64_t addr_dlsym   = (uint64_t)ptrauth_strip(dlsym(RTLD_DEFAULT, "dlsym"), ptrauth_key_function_pointer);
+  uint64_t val_verbose  = (uint64_t)g_verbose;
 
-  kr  = remote_write(ctx->task, ctx->data_page + DP_ORIG_IMP, &addr_origImp, 8);
-  kr |= remote_write(ctx->task, ctx->data_page + DP_SEC_COPY_PATH, &addr_copyPath, 8);
-  kr |= remote_write(ctx->task, ctx->data_page + DP_URL_GET_REP, &addr_getRep, 8);
-  kr |= remote_write(ctx->task, ctx->data_page + DP_CF_RELEASE, &addr_release, 8);
+  kr  = remote_write(ctx->task, ctx->data_page + DP_OFF(orig_imp), &addr_origImp, 8);
+  kr |= remote_write(ctx->task, ctx->data_page + DP_OFF(dlsym),    &addr_dlsym, 8);
+  kr |= remote_write(ctx->task, ctx->data_page + DP_OFF(verbose),  &val_verbose, 8);
   if (kr != KERN_SUCCESS) {
     fprintf(stderr, "[-] failed to write API ptrs\n");
     free(buf);
@@ -142,9 +142,9 @@ int build_code_page(inject_ctx_t *ctx, const char *allowlist, size_t al_len) {
     /* Tighten to read-only now that data is written */
     remote_protect(ctx->task, remote_al, PAGE_SIZE, VM_PROT_READ);
     uint64_t al_sz = (uint64_t)al_len;
-    remote_write(ctx->task, ctx->data_page + DP_ALLOWLIST_SIZE, &al_sz, 8);
+    remote_write(ctx->task, ctx->data_page + DP_OFF(allowlist_size), &al_sz, 8);
     uint64_t al_ptr = (uint64_t)remote_al;
-    remote_write(ctx->task, ctx->data_page + DP_ALLOWLIST_PTR, &al_ptr, 8);
+    remote_write(ctx->task, ctx->data_page + DP_OFF(allowlist_ptr), &al_ptr, 8);
     VLOG("[*] allowlist %zu bytes at 0x%llx\n", al_len, (uint64_t)remote_al);
   } else {
     printf("[!] no allowlist — validations will use original result\n");

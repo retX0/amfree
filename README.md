@@ -89,9 +89,9 @@ Our hook code lives on a `mach_vm_allocate`'d page — it has no code signature.
 
 ### Build-time offset extraction
 
-The hook shellcode accesses ObjC ivar `_code` on the `AMFIPathValidator_macos` instance. This ivar offset is **not hardcoded** — it's extracted at build time by a small ObjC probe (`shellcode/probe_ivar.m`) that loads the AMFI framework and calls `ivar_getOffset()`. The Makefile compiles and runs the probe, caches the result in `build/ivar_offset.mk`, and passes it to both the assembler and C compiler via `-DIVAR_CODE_OFFSET=<value>`. This means `make clean && make` automatically adapts to ivar layout changes across macOS versions.
+The hook accesses ObjC ivar `_code` on the `AMFIPathValidator_macos` instance. This ivar offset is **not hardcoded** — it's extracted at build time by a small ObjC probe (`shellcode/probe_ivar.m`) that loads the AMFI framework and calls `ivar_getOffset()`. The Makefile compiles and runs the probe, caches the result in `build/ivar_offset.mk`, and passes it to both the assembler and C compiler via `-DIVAR_CODE_OFFSET=<value>`. This means `make clean && make` automatically adapts to ivar layout changes across macOS versions.
 
-Similarly, `SLOT_DATA_PAGE_PTR` (the offset of the data-page pointer inside the shellcode) is extracted from `build/hook.o` via `nm` at build time.
+The data-page pointer slot offset (`_dp_slot`) is computed at runtime via `&_dp_slot - sc_template`, eliminating the previous `nm`-based build step.
 
 ## Injection Flow
 
@@ -120,14 +120,16 @@ Similarly, `SLOT_DATA_PAGE_PTR` (the offset of the data-page pointer inside the 
 | `0x28` | Allowlist byte length |
 | `0x30` | Allowlist memory address |
 
-**Code page** (RX) — hook shellcode + setup trampoline:
+**Code page** (RX) — hook code + setup trampoline:
 
 | Region | Content |
 |--------|---------|
-| `0x00..N` | Hook entry (`hook.S` — prologue, call-through, path matching) |
+| `0x00..` | Assembly trampoline (`hook_entry.S` — loads data_page, calls C) |
+| `..` | C hook body (`hook_body.c` — call-through, path extraction, allowlist matching) |
+| `..` | `_dp_slot` — 8-byte data_page pointer storage |
 | `N+0` | `paciza x2` — PAC-sign the IMP |
 | `N+4` | `blr x8` — call `class_replaceMethod` |
-| `N+8` | `brk #0xfed6` — trap for injector to regain control |
+| `N+8` | `b .` — spin for injector to regain control |
 
 **Allowlist page** (R) — newline-separated path prefixes, compared against each binary's path via `SecCodeCopyPath`.
 
@@ -155,13 +157,15 @@ src/
   remote_macho.c     Find amfid PID and method IMP
   rsp.c              GDB Remote Serial Protocol client
 shellcode/
-  hook.S             ARM64 hook (call-through + prefix matching)
-  data_layout.h      Shared data page layout + class name
+  hook_entry.S       ARM64 trampoline (~10 instructions)
+  hook_body.c        C hook logic (call-through + allowlist matching)
+  dp_slot.S          Data page pointer slot (8 bytes, section tail)
+  data_layout.h      Shared data page layout + struct definition
   probe_ivar.m       Build-time probe for ObjC ivar offsets
 include/             Headers
 tests/               test_ent with private entitlements
-docs/
-  dev-errors.md      Development error log (13 issues encountered)
+notes/
+  dev-errors.md      Development error log
 ```
 
 ## Limitations

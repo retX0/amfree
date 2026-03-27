@@ -7,6 +7,7 @@ BIN     = bin
 
 SRCS    = $(wildcard src/*.c)
 OBJS    = $(patsubst src/%.c,$(BUILD)/%.o,$(SRCS))
+HOOK_OBJS = $(BUILD)/hook_entry.o $(BUILD)/hook_body.o
 
 .PHONY: all shellcode test clean
 
@@ -24,25 +25,30 @@ $(BUILD)/ivar_offset.mk: $(BUILD)/probe_ivar
 
 -include $(BUILD)/ivar_offset.mk
 
-# --- Shellcode ---
-$(BUILD)/hook.o: shellcode/hook.S shellcode/data_layout.h $(BUILD)/ivar_offset.mk | $(BUILD)
-	$(AS) $(ASFLAGS) -I . -DIVAR_CODE_OFFSET=$(IVAR_CODE_OFFSET) -c $< -o $@
+# --- Hook (assembly trampoline + C body) ---
+$(BUILD)/hook_entry.o: shellcode/hook_entry.S | $(BUILD)
+	$(AS) $(ASFLAGS) -c $< -o $@
 
-# --- All C sources get SLOT_DATA_PAGE_PTR + IVAR_CODE_OFFSET ---
-$(BUILD)/%.o: src/%.c $(BUILD)/hook.o | $(BUILD)
-	@DP_OFFSET=$$(nm $(BUILD)/hook.o | grep ' _dp_slot' | awk '{print "0x"$$1}'); \
-	$(CC) $(CFLAGS) -DSLOT_DATA_PAGE_PTR=$$DP_OFFSET -DIVAR_CODE_OFFSET=$(IVAR_CODE_OFFSET) -c $< -o $@
+$(BUILD)/hook_body.o: shellcode/hook_body.c shellcode/data_layout.h $(BUILD)/ivar_offset.mk | $(BUILD)
+	$(CC) $(CFLAGS) -fno-stack-protector -fno-builtin -DIVAR_CODE_OFFSET=$(IVAR_CODE_OFFSET) -c $< -o $@
 
-# --- Link ---
-$(BIN)/amfree: $(OBJS) $(BUILD)/hook.o | $(BIN)
+
+
+# --- All C sources ---
+$(BUILD)/%.o: src/%.c $(BUILD)/ivar_offset.mk | $(BUILD)
+	$(CC) $(CFLAGS) -DIVAR_CODE_OFFSET=$(IVAR_CODE_OFFSET) -c $< -o $@
+
+# --- Link (hook_entry.o MUST come before hook_body.o for section order) ---
+$(BIN)/amfree: $(OBJS) $(HOOK_OBJS) | $(BIN)
 	$(CC) $(CFLAGS) -lobjc -o $@ $^
 
 $(BIN)/test_ent: tests/test_entitlements.c | $(BIN)
 	$(CC) $(CFLAGS) -framework Security -framework CoreFoundation -o $@ $<
 	codesign -s - --entitlements tests/test_entitlements.plist -f $@
 
-shellcode: $(BUILD)/hook.o
-	@size -m $< | grep inject
+shellcode: $(HOOK_OBJS)
+	@size -m $(BUILD)/hook_entry.o | grep inject
+	@size -m $(BUILD)/hook_body.o | grep inject
 
 test: $(BIN)/amfree
 	@rm -f $(BIN)/test_ent

@@ -159,7 +159,7 @@ int hijack_and_install(inject_ctx_t *ctx, pid_t ds_pid) {
   VLOG("[*] class_replaceMethod returned: 0x%llx\n", ret_imp);
 
   /* Write original IMP to data_page[8] */
-  kr = remote_write(ctx->task, ctx->data_page + DP_ORIG_IMP, &ctx->orig_imp, sizeof(ctx->orig_imp));
+  kr = remote_write(ctx->task, ctx->data_page + DP_OFF(orig_imp), &ctx->orig_imp, sizeof(ctx->orig_imp));
   if (kr != KERN_SUCCESS) {
     fprintf(stderr, "[-] write old IMP failed\n");
     goto cleanup;

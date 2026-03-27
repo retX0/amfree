@@ -15,10 +15,8 @@
 extern int g_verbose;
 #define VLOG(...) do { if (g_verbose) printf(__VA_ARGS__); } while (0)
 
-/* Hook code data slot offset (extracted from hook.o by Makefile). */
-#ifndef SLOT_DATA_PAGE_PTR
-#error "SLOT_DATA_PAGE_PTR must be defined by the Makefile (extracted from hook.o)"
-#endif
+/* Hook code data slot — offset computed at runtime. */
+extern uint64_t _dp_slot;
 
 /* Context passed between stages. */
 typedef struct {
