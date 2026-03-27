@@ -111,8 +111,7 @@ hook_body(void *self, void *_cmd, void **err, data_page_t *dp) {
   }
 
   /* 2. Read _code ivar (SecStaticCodeRef) from self */
-  SecStaticCodeRef code =
-      *(SecStaticCodeRef *)((char *)self + dp->ivar_offset);
+  SecStaticCodeRef code = *(SecStaticCodeRef *)((char *)self + dp->ivar_offset);
   if (!code) {
     LOG("[amfree] _code ivar is NULL");
     return false;
@@ -127,9 +126,12 @@ hook_body(void *self, void *_cmd, void **err, data_page_t *dp) {
 
   SecCodeCopyPathFn copyPath =
       (SecCodeCopyPathFn)STRIP_PAC(my_dlsym(RTLD_DEFAULT, s_copypath));
-  CFURLGetFSRepFn getRep = (CFURLGetFSRepFn)STRIP_PAC(my_dlsym(RTLD_DEFAULT, s_getrep));
-  CFReleaseFn cfRelease = (CFReleaseFn)STRIP_PAC(my_dlsym(RTLD_DEFAULT, s_release));
-  StrncmpFn my_strncmp = (StrncmpFn)STRIP_PAC(my_dlsym(RTLD_DEFAULT, s_strncmp));
+  CFURLGetFSRepFn getRep =
+      (CFURLGetFSRepFn)STRIP_PAC(my_dlsym(RTLD_DEFAULT, s_getrep));
+  CFReleaseFn cfRelease =
+      (CFReleaseFn)STRIP_PAC(my_dlsym(RTLD_DEFAULT, s_release));
+  StrncmpFn my_strncmp =
+      (StrncmpFn)STRIP_PAC(my_dlsym(RTLD_DEFAULT, s_strncmp));
   StrlenFn my_strlen = (StrlenFn)STRIP_PAC(my_dlsym(RTLD_DEFAULT, s_strlen));
 
   if (!copyPath || !getRep || !cfRelease || !my_strncmp || !my_strlen) {
@@ -167,22 +169,19 @@ hook_body(void *self, void *_cmd, void **err, data_page_t *dp) {
   const char *end = al + al_size;
 
   for (const char *p = al; p < end;) {
-    if (*p <= ' ') {
-      p++;
-      continue;
-    }
-    const char *line = p;
-    while (p < end && *p != '\n')
-      p++;
-    unsigned long len = (unsigned long)(p - line);
-    if (len <= path_len && my_strncmp((const char *)path, line, len) == 0) {
+    const char *nl = p;
+    while (nl < end && *nl != '\n')
+      nl++;
+    unsigned long len = (unsigned long)(nl - p);
+    if (len && len <= path_len && my_strncmp((const char *)path, p, len) == 0) {
       VLOG("[amfree] ALLOWED: %%s", (const char *)path);
       if (err)
         *err = NULL;
       return true;
     }
+    p = nl + 1;
   }
 
-  LOG("[amfree] DENIED: %%s", (const char *)path);
+  VLOG("[amfree] DENIED: %%s", (const char *)path);
   return false;
 }

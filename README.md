@@ -18,8 +18,12 @@ sudo amfree --path /path/to/your/project/
 # multiple directories
 sudo amfree --path /path/one/ --path /path/two/
 
-# verbose output
+# verbose output during injection
 sudo amfree -v --path /path/to/project/
+
+# toggle hook verbose logging at runtime (no reinstall needed)
+sudo amfree --hook-verbose on
+sudo amfree --hook-verbose off
 ```
 
 ## Build from Source
@@ -87,11 +91,11 @@ We solve this by executing `paciza` on our code page address **inside amfid's co
 
 Our hook code lives on a `mach_vm_allocate`'d page — it has no code signature. Normally the kernel would refuse to execute unsigned pages in amfid. The `CS_DEBUGGED` flag (set when debugserver attaches) tells the kernel to allow execution of unsigned code pages. This flag is **sticky** in XNU — `ptrace(PT_DETACH)` does not clear it, so debugserver is detached and killed after hook installation.
 
-### Build-time offset extraction
+### Runtime ivar resolution
 
-The hook accesses ObjC ivar `_code` on the `AMFIPathValidator_macos` instance. This ivar offset is **not hardcoded** — it's extracted at build time by a small ObjC probe (`shellcode/probe_ivar.m`) that loads the AMFI framework and calls `ivar_getOffset()`. The Makefile compiles and runs the probe, caches the result in `build/ivar_offset.mk`, and passes it to both the assembler and C compiler via `-DIVAR_CODE_OFFSET=<value>`. This means `make clean && make` automatically adapts to ivar layout changes across macOS versions.
+The hook accesses ObjC ivar `_code` on the `AMFIPathValidator_macos` instance. This ivar offset is resolved **at runtime** by the injector via `class_getInstanceVariable` + `ivar_getOffset()` and written to the data page. The hook reads `dp->ivar_offset` — no build-time probes or compile-time defines needed. This automatically adapts to ivar layout changes across macOS versions.
 
-The data-page pointer slot offset (`_dp_slot`) is computed at runtime via `&_dp_slot - sc_template`, eliminating the previous `nm`-based build step.
+The data-page pointer slot offset (`_dp_slot`) is computed at runtime via `&_dp_slot - sc_template`.
 
 ## Injection Flow
 
@@ -114,9 +118,9 @@ The data-page pointer slot offset (`_dp_slot`) is computed at runtime via `&_dp_
 | Offset | Content |
 |--------|---------|
 | `0x08` | Original IMP (written after `class_replaceMethod` returns) |
-| `0x10` | `SecCodeCopyPath` pointer |
-| `0x18` | `CFURLGetFileSystemRepresentation` pointer |
-| `0x20` | `CFRelease` pointer |
+| `0x10` | `dlsym` pointer (PAC-stripped) |
+| `0x18` | Verbose flag (1 = on) |
+| `0x20` | `_code` ivar offset (resolved at runtime) |
 | `0x28` | Allowlist byte length |
 | `0x30` | Allowlist memory address |
 
@@ -153,15 +157,14 @@ src/
   main.c             Entry point, argument parsing
   hook_install.c     ObjC resolution, code/data page construction
   debugserver.c      Spawn debugserver, RSP thread hijack
+  allowlist.c        State file I/O, list, verbose toggle, allowlist update
   mach_utils.c       Mach VM primitives (alloc, read, write, protect)
   remote_macho.c     Find amfid PID and method IMP
   rsp.c              GDB Remote Serial Protocol client
 shellcode/
-  hook_entry.S       ARM64 trampoline (~10 instructions)
+  hook_entry.S       ARM64 trampoline (loads data_page, calls C body)
   hook_body.c        C hook logic (call-through + allowlist matching)
-  dp_slot.S          Data page pointer slot (8 bytes, section tail)
-  data_layout.h      Shared data page layout + struct definition
-  probe_ivar.m       Build-time probe for ObjC ivar offsets
+  data_layout.h      Shared data page layout (data_page_t struct)
 include/             Headers
 tests/               test_ent with private entitlements
 notes/
