@@ -62,16 +62,18 @@ static int cmd_install(const char *allowlist, size_t al_len) {
 
 int main(int argc, char **argv) {
   static struct option long_options[] = {
-      {"path",    required_argument, NULL, 'p'},
-      {"list",    no_argument,       NULL, 'l'},
-      {"verbose", no_argument,       NULL, 'v'},
-      {"help",    no_argument,       NULL, 'h'},
+      {"path",         required_argument, NULL, 'p'},
+      {"list",         no_argument,       NULL, 'l'},
+      {"verbose",      no_argument,       NULL, 'v'},
+      {"hook-verbose", required_argument, NULL, 'V'},
+      {"help",         no_argument,       NULL, 'h'},
       {NULL, 0, NULL, 0}
   };
 
   char allowlist_buf[4096] = {0};
   size_t al_len = 0;
   int do_list = 0;
+  int set_hook_verbose = -1;  /* -1 = not requested, 0 = off, 1 = on */
   int opt;
 
   while ((opt = getopt_long(argc, argv, "p:lvh", long_options, NULL)) != -1) {
@@ -91,13 +93,24 @@ int main(int argc, char **argv) {
     case 'v':
       g_verbose = 1;
       break;
+    case 'V':
+      if (strcmp(optarg, "on") == 0 || strcmp(optarg, "1") == 0)
+        set_hook_verbose = 1;
+      else if (strcmp(optarg, "off") == 0 || strcmp(optarg, "0") == 0)
+        set_hook_verbose = 0;
+      else {
+        fprintf(stderr, "[-] --hook-verbose expects 'on' or 'off'\n");
+        return 1;
+      }
+      break;
     case 'h':
     default:
-      printf("Usage: %s [-v] [--path <dir>]... [--list]\n\n"
-             "  -p, --path <dir>  Allow binaries under <dir> to bypass AMFI.\n"
-             "                    Updates in-place if hook is already active.\n"
-             "  -l, --list        List currently allowed paths.\n"
-             "  -v, --verbose     Print detailed debug information.\n",
+      printf("Usage: %s [-v] [--path <dir>]... [--list] [--hook-verbose on|off]\n\n"
+             "  -p, --path <dir>        Allow binaries under <dir> to bypass AMFI.\n"
+             "                          Updates in-place if hook is already active.\n"
+             "  -l, --list              List currently allowed paths.\n"
+             "      --hook-verbose V    Set hook verbose logging (on/off).\n"
+             "  -v, --verbose           Print detailed debug information.\n",
              argv[0]);
       return opt == 'h' ? 0 : 1;
     }
@@ -105,6 +118,9 @@ int main(int argc, char **argv) {
 
   if (do_list)
     return allowlist_list();
+
+  if (set_hook_verbose >= 0)
+    return hook_set_verbose(set_hook_verbose);
 
   /* Fall back to /tmp/amfid_allowlist if no --path given */
   if (al_len == 0) {

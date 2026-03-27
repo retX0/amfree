@@ -31,3 +31,9 @@ int allowlist_list(void);
  * without re-installing the hook.  Returns 0 on success.
  */
 int allowlist_update(hook_state_t *st, const char *new_paths, size_t new_len);
+
+/*
+ * Toggle verbose logging on the running hook.
+ * Writes directly to amfid's data page.  Returns 0 on success.
+ */
+int hook_set_verbose(int on);

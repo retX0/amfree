@@ -121,3 +121,30 @@ int allowlist_update(hook_state_t *st, const char *new_paths, size_t new_len) {
   printf("[+] allowlist updated (pid %d, %zu bytes)\n", st->pid, merged_len);
   return 0;
 }
+
+/* ---- Verbose toggle ---- */
+
+int hook_set_verbose(int on) {
+  hook_state_t st;
+  if (!is_hook_active(&st)) {
+    fprintf(stderr, "[-] no active hook\n");
+    return 1;
+  }
+
+  mach_port_t task;
+  kern_return_t kr = task_for_pid(mach_task_self(), st.pid, &task);
+  if (kr != KERN_SUCCESS) {
+    fprintf(stderr, "[-] task_for_pid: %s\n", mach_error_string(kr));
+    return 1;
+  }
+
+  uint64_t val = (uint64_t)on;
+  kr = remote_write(task, st.data_page + DP_OFF(verbose), &val, 8);
+  if (kr != KERN_SUCCESS) {
+    fprintf(stderr, "[-] write failed\n");
+    return 1;
+  }
+
+  printf("[+] verbose %s (pid %d)\n", on ? "on" : "off", st.pid);
+  return 0;
+}
