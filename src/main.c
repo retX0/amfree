@@ -20,6 +20,9 @@
 
 int g_verbose = 0;
 
+#ifndef GIT_VERSION
+#define GIT_VERSION "unknown"
+#endif
 static void save_state(inject_ctx_t *ctx) {
   FILE *fp = fopen(STATE_FILE, "w");
   if (fp) {
@@ -61,6 +64,8 @@ static int cmd_install(const char *allowlist, size_t al_len) {
 }
 
 int main(int argc, char **argv) {
+  printf("amfree (%s)\n", GIT_VERSION);
+
   static struct option long_options[] = {
       {"path",         required_argument, NULL, 'p'},
       {"list",         no_argument,       NULL, 'l'},
@@ -105,13 +110,14 @@ int main(int argc, char **argv) {
       break;
     case 'h':
     default:
-      printf("Usage: %s [-v] [--path <dir>]... [--list] [--hook-verbose on|off]\n\n"
+      printf("amfree %s\n\n"
+             "Usage: %s [-v] [--path <dir>]... [--list] [--hook-verbose on|off]\n\n"
              "  -p, --path <dir>        Allow binaries under <dir> to bypass AMFI.\n"
              "                          Updates in-place if hook is already active.\n"
              "  -l, --list              List currently allowed paths.\n"
              "      --hook-verbose V    Set hook verbose logging (on/off).\n"
              "  -v, --verbose           Print detailed debug information.\n",
-             argv[0]);
+             GIT_VERSION, argv[0]);
       return opt == 'h' ? 0 : 1;
     }
   }

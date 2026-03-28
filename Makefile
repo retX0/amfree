@@ -1,5 +1,6 @@
 CC      = clang
-CFLAGS  = -arch arm64 -Wall -Wextra -I include -I .
+GIT_VER = $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+CFLAGS  = -arch arm64 -Wall -Wextra -I include -I . -DGIT_VERSION='"$(GIT_VER)"'
 AS      = clang
 ASFLAGS = -arch arm64
 BUILD   = build
