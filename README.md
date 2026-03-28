@@ -21,6 +21,9 @@ sudo amfree --path /path/one/ --path /path/two/
 # verbose output during injection
 sudo amfree -v --path /path/to/project/
 
+# list currently allowed paths
+sudo amfree --list
+
 # toggle hook verbose logging at runtime (no reinstall needed)
 sudo amfree --hook-verbose on
 sudo amfree --hook-verbose off
@@ -146,6 +149,9 @@ sudo bin/amfree --path /Users/me/dev/ --path /opt/tools/
 # File-based fallback (if no --path given)
 echo "/Users/me/dev/" > /tmp/amfid_allowlist
 sudo bin/amfree
+
+# Inspect active allowlist
+sudo amfree --list
 ```
 
 Paths are matched as **prefixes** — a binary at `/Users/me/dev/foo/bar` matches the entry `/Users/me/dev/`.

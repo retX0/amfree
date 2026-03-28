@@ -116,6 +116,12 @@ int main(int argc, char **argv) {
     }
   }
 
+  /* Reject unknown trailing positional arguments */
+  if (optind < argc) {
+    fprintf(stderr, "[-] unexpected argument '%s'\n", argv[optind]);
+    return 1;
+  }
+
   if (do_list)
     return allowlist_list();
 
