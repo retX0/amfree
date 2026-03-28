@@ -130,27 +130,46 @@ int hijack_and_install(inject_ctx_t *ctx, pid_t ds_pid) {
   rsp_set_reg(sock, 0x1f, (uint64_t)ctx->data_page + PAGE_SIZE - 256, rsp_buf, sizeof(rsp_buf));
   VLOG("[*] registers set, pc → setup code\n");
 
-  /* Continue all threads */
+  /* Continue all threads and poll until PC reaches the spin loop (b .) */
+  uint64_t brk_addr = (uint64_t)ctx->code_page + ctx->setup_offset + 8;
+  uint64_t stop_pc = 0;
+  int attempts = 0;
+  const int max_attempts = 20;
+
   rsp_send(sock, "c");
 
-  /* wait 100ms for class_replaceMethod to finish, then interrupt */
-  usleep(100000);
-  char ctrl_c = 0x03;
-  write(sock, &ctrl_c, 1);
+  while (attempts++ < max_attempts) {
+    usleep(100000);  /* 100ms per attempt */
+    char ctrl_c = 0x03;
+    write(sock, &ctrl_c, 1);
 
-  reply = rsp_recv(sock, rsp_buf, sizeof(rsp_buf));
-  if (!reply) {
-    fprintf(stderr, "[-] no stop reply\n");
-    goto cleanup;
+    reply = rsp_recv(sock, rsp_buf, sizeof(rsp_buf));
+    if (!reply) {
+      fprintf(stderr, "[-] no stop reply\n");
+      goto cleanup;
+    }
+
+    rsp_send(sock, "p20");
+    reply = rsp_recv(sock, rsp_buf, sizeof(rsp_buf));
+    stop_pc = reply ? rsp_decode_u64(reply) : 0;
+
+    if (stop_pc == brk_addr) {
+      VLOG("[*] pc = 0x%llx (spin @ 0x%llx) OK [attempt %d]\n",
+           stop_pc, brk_addr, attempts);
+      break;
+    }
+
+    VLOG("[*] pc = 0x%llx (waiting for 0x%llx, attempt %d/%d)\n",
+         stop_pc, brk_addr, attempts, max_attempts);
+    rsp_send(sock, "c");
   }
 
-  /* Verify we stopped at b . */
-  rsp_send(sock, "p20");
-  reply = rsp_recv(sock, rsp_buf, sizeof(rsp_buf));
-  uint64_t stop_pc = reply ? rsp_decode_u64(reply) : 0;
-  uint64_t brk_addr = (uint64_t)ctx->code_page + ctx->setup_offset + 8;
-  VLOG("[*] pc = 0x%llx (spin @ 0x%llx) %s\n", stop_pc, brk_addr,
-       stop_pc == brk_addr ? "OK" : "MISMATCH!");
+  if (stop_pc != brk_addr) {
+    fprintf(stderr, "[-] setup code did not reach spin loop after %d attempts "
+                    "(pc=0x%llx, expected=0x%llx)\n",
+            max_attempts, stop_pc, brk_addr);
+    goto cleanup;
+  }
 
   /* Read return value */
   rsp_send(sock, "p0");
