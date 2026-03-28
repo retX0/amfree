@@ -147,9 +147,14 @@ int main(int argc, char **argv) {
     }
   }
 
+  if (al_len == 0) {
+    fprintf(stderr, "[-] no paths specified (use --path or /tmp/amfid_allowlist)\n");
+    return 1;
+  }
+
   /* If hook is already active, do incremental update */
   hook_state_t st;
-  if (al_len > 0 && is_hook_active(&st)) {
+  if (is_hook_active(&st)) {
     VLOG("[*] hook active (pid %d), updating allowlist\n", st.pid);
     return allowlist_update(&st, allowlist_buf, al_len);
   }
