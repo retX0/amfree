@@ -7,6 +7,7 @@
 #include "rsp.h"
 
 #include <fcntl.h>
+#include <mach/mach.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -102,6 +103,24 @@ int hijack_and_install(inject_ctx_t *ctx, pid_t ds_pid) {
   }
   VLOG("[*] amfid stopped\n");
 
+  /* Abort all threads out of any Mach traps (e.g. mach_msg_receive).
+   * Without this, setting PC via RSP has no effect because the thread
+   * remains blocked in the kernel and never returns to userspace. */
+  {
+    thread_act_array_t threads;
+    mach_msg_type_number_t tcount;
+    kern_return_t tkr = task_threads(ctx->task, &threads, &tcount);
+    if (tkr == KERN_SUCCESS) {
+      for (mach_msg_type_number_t i = 0; i < tcount; i++) {
+        thread_abort_safely(threads[i]);
+        mach_port_deallocate(mach_task_self(), threads[i]);
+      }
+      vm_deallocate(mach_task_self(), (vm_address_t)threads,
+                    tcount * sizeof(thread_t));
+      VLOG("[*] aborted %u threads from kernel traps\n", tcount);
+    }
+  }
+
   /* Save registers */
   rsp_send(sock, "g");
   char *saved_regs = rsp_recv(sock, rsp_buf, sizeof(rsp_buf));
@@ -130,46 +149,31 @@ int hijack_and_install(inject_ctx_t *ctx, pid_t ds_pid) {
   rsp_set_reg(sock, 0x1f, (uint64_t)ctx->data_page + PAGE_SIZE - 256, rsp_buf, sizeof(rsp_buf));
   VLOG("[*] registers set, pc → setup code\n");
 
-  /* Continue all threads and poll until PC reaches the spin loop (b .) */
+  /* Continue and let setup code run (paciza + blr + b . — three insns). */
   uint64_t brk_addr = (uint64_t)ctx->code_page + ctx->setup_offset + 8;
-  uint64_t stop_pc = 0;
-  int attempts = 0;
-  const int max_attempts = 20;
 
   rsp_send(sock, "c");
+  usleep(100000);  /* 100ms is plenty for three instructions + class_replaceMethod */
 
-  while (attempts++ < max_attempts) {
-    usleep(100000);  /* 100ms per attempt */
-    char ctrl_c = 0x03;
-    write(sock, &ctrl_c, 1);
-
-    reply = rsp_recv(sock, rsp_buf, sizeof(rsp_buf));
-    if (!reply) {
-      fprintf(stderr, "[-] no stop reply\n");
-      goto cleanup;
-    }
-
-    rsp_send(sock, "p20");
-    reply = rsp_recv(sock, rsp_buf, sizeof(rsp_buf));
-    stop_pc = reply ? rsp_decode_u64(reply) : 0;
-
-    if (stop_pc == brk_addr) {
-      VLOG("[*] pc = 0x%llx (spin @ 0x%llx) OK [attempt %d]\n",
-           stop_pc, brk_addr, attempts);
-      break;
-    }
-
-    VLOG("[*] pc = 0x%llx (waiting for 0x%llx, attempt %d/%d)\n",
-         stop_pc, brk_addr, attempts, max_attempts);
-    rsp_send(sock, "c");
-  }
-
-  if (stop_pc != brk_addr) {
-    fprintf(stderr, "[-] setup code did not reach spin loop after %d attempts "
-                    "(pc=0x%llx, expected=0x%llx)\n",
-            max_attempts, stop_pc, brk_addr);
+  char ctrl_c = 0x03;
+  write(sock, &ctrl_c, 1);
+  reply = rsp_recv(sock, rsp_buf, sizeof(rsp_buf));
+  if (!reply) {
+    fprintf(stderr, "[-] no stop reply\n");
     goto cleanup;
   }
+
+  rsp_send(sock, "p20");
+  reply = rsp_recv(sock, rsp_buf, sizeof(rsp_buf));
+  uint64_t stop_pc = reply ? rsp_decode_u64(reply) : 0;
+
+  if (stop_pc != brk_addr) {
+    fprintf(stderr, "[-] setup code did not reach spin loop "
+                    "(pc=0x%llx, expected=0x%llx)\n",
+            stop_pc, brk_addr);
+    goto cleanup;
+  }
+  VLOG("[*] pc = 0x%llx (spin @ 0x%llx) OK\n", stop_pc, brk_addr);
 
   /* Read return value */
   rsp_send(sock, "p0");
