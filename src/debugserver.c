@@ -23,6 +23,23 @@
 
 #define RSP_PORT 23479
 
+typedef struct {
+  int num;
+  uint64_t val;
+} saved_reg_t;
+
+static int rsp_get_reg(int sock, int regnum, uint64_t *val,
+                       char *buf, size_t bufsz) {
+  char cmd[16];
+  snprintf(cmd, sizeof(cmd), "p%x", regnum);
+  rsp_send(sock, cmd);
+  char *r = rsp_recv(sock, buf, bufsz);
+  if (!r || !*r)
+    return -1;
+  *val = rsp_decode_u64(r);
+  return 0;
+}
+
 /* Resolve debugserver from the active Xcode, falling back to the hardcoded path. */
 static int resolve_debugserver(char *path, size_t path_sz) {
   char developer_dir[1024];
@@ -81,7 +98,10 @@ int spawn_debugserver(inject_ctx_t *ctx, pid_t *ds_pid) {
 /* ==== Steps 5-8: Connect, hijack thread, install hook, resume ==== */
 int hijack_and_install(inject_ctx_t *ctx, pid_t ds_pid) {
   char rsp_buf[65536];
-  char *saved_copy = NULL;
+  saved_reg_t saved_regs[0x22];
+  size_t saved_count = 0;
+  int saved_regs_ok = 0;
+  int killed_amfid = 0;
   int ret = -1;
 
   int sock = rsp_connect(RSP_PORT);
@@ -121,14 +141,25 @@ int hijack_and_install(inject_ctx_t *ctx, pid_t ds_pid) {
     }
   }
 
-  /* Save registers */
-  rsp_send(sock, "g");
-  char *saved_regs = rsp_recv(sock, rsp_buf, sizeof(rsp_buf));
-  if (!saved_regs) {
-    fprintf(stderr, "[-] read regs failed\n");
+  for (int reg = 0; reg <= 0x1f; reg++)
+    saved_regs[saved_count++].num = reg;
+  saved_regs[saved_count++].num = 0x21; /* cpsr, optional on some debugservers */
+  saved_regs[saved_count++].num = 0x20; /* pc last */
+
+  for (size_t i = 0; i < saved_count;) {
+    if (rsp_get_reg(sock, saved_regs[i].num, &saved_regs[i].val,
+                    rsp_buf, sizeof(rsp_buf)) == 0) {
+      i++;
+      continue;
+    }
+    if (saved_regs[i].num == 0x21) {
+      saved_regs[i] = saved_regs[--saved_count];
+      continue;
+    }
+    fprintf(stderr, "[-] read reg %x failed\n", saved_regs[i].num);
     goto cleanup;
   }
-  saved_copy = strdup(saved_regs);
+  saved_regs_ok = 1;
 
   /* Write type encoding */
   kern_return_t kr = remote_write(ctx->task, ctx->data_page + DP_TYPE_ENCODING,
@@ -192,26 +223,34 @@ int hijack_and_install(inject_ctx_t *ctx, pid_t ds_pid) {
 
 cleanup:
   /* Restore registers */
-  if (saved_copy) {
-    size_t gl = 1 + strlen(saved_copy) + 1;
-    char *gcmd = malloc(gl);
-    snprintf(gcmd, gl, "G%s", saved_copy);
-    rsp_send(sock, gcmd);
-    free(gcmd);
-    char *g_reply = rsp_recv(sock, rsp_buf, sizeof(rsp_buf));
-    VLOG("[*] G reply: %s\n", g_reply ? g_reply : "NULL");
+  if (saved_regs_ok) {
+    int restore_ok = 1;
+    for (size_t i = 0; i < saved_count; i++) {
+      if (rsp_set_reg(sock, saved_regs[i].num, saved_regs[i].val,
+                      rsp_buf, sizeof(rsp_buf)) < 0)
+        restore_ok = 0;
+    }
+    if (!restore_ok) {
+      fprintf(stderr, "[-] failed to restore amfid registers; killing amfid\n");
+      kill(ctx->pid, SIGKILL);
+      killed_amfid = 1;
+      ret = -1;
+    } else {
+      VLOG("[*] registers restored\n");
+    }
   }
 
   /* Detach + kill debugserver.
    * CS_DEBUGGED is a sticky flag in XNU — ptrace(PT_DETACH)
    * does not clear it, so the hook remains executable. */
-  rsp_send(sock, "D");
-  rsp_recv(sock, rsp_buf, sizeof(rsp_buf));
+  if (!killed_amfid) {
+    rsp_send(sock, "D");
+    rsp_recv(sock, rsp_buf, sizeof(rsp_buf));
+  }
   kill(ds_pid, SIGKILL);
   waitpid(ds_pid, NULL, 0);
   VLOG("[*] debugserver detached and killed\n");
 
-  free(saved_copy);
   close(sock);
   return ret;
 }
