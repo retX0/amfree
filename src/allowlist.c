@@ -77,6 +77,24 @@ int allowlist_list(void) {
 
 /* ---- Incremental update ---- */
 
+static int append_unique_line(char *dst, size_t *dst_len,
+                              const char *line, size_t line_len) {
+  if (!line_len) return 0;
+
+  for (char *p = dst; p < dst + *dst_len;) {
+    char *nl = memchr(p, '\n', (size_t)(dst + *dst_len - p));
+    size_t len = nl ? (size_t)(nl - p) : (size_t)(dst + *dst_len - p);
+    if (len == line_len && memcmp(p, line, line_len) == 0)
+      return 0;
+    p += len + (nl != NULL);
+  }
+
+  memcpy(dst + *dst_len, line, line_len);
+  *dst_len += line_len;
+  dst[(*dst_len)++] = '\n';
+  return 1;
+}
+
 int allowlist_update(hook_state_t *st, const char *new_paths, size_t new_len) {
   mach_port_t task;
   kern_return_t kr = task_for_pid(mach_task_self(), st->pid, &task);
@@ -90,12 +108,27 @@ int allowlist_update(hook_state_t *st, const char *new_paths, size_t new_len) {
   remote_read(task, st->data_page + DP_OFF(allowlist_ptr), &old_ptr, 8);
   remote_read(task, st->data_page + DP_OFF(allowlist_size), &old_size, 8);
 
-  /* Merge: existing + new */
-  size_t merged_len = old_size + new_len;
-  char *merged = calloc(1, merged_len + 1);
+  /* Merge and de-duplicate newline-separated paths. */
+  char *old = calloc(1, old_size + 1);
   if (old_ptr && old_size)
-    remote_read(task, old_ptr, merged, old_size);
-  memcpy(merged + old_size, new_paths, new_len);
+    remote_read(task, old_ptr, old, old_size);
+
+  size_t merged_len = 0;
+  char *merged = calloc(1, old_size + new_len + 1);
+  for (char *p = old; p < old + old_size;) {
+    char *nl = memchr(p, '\n', (size_t)(old + old_size - p));
+    size_t len = nl ? (size_t)(nl - p) : (size_t)(old + old_size - p);
+    append_unique_line(merged, &merged_len, p, len);
+    p += len + (nl != NULL);
+  }
+  free(old);
+
+  for (const char *p = new_paths; p < new_paths + new_len;) {
+    const char *nl = memchr(p, '\n', (size_t)(new_paths + new_len - p));
+    size_t len = nl ? (size_t)(nl - p) : (size_t)(new_paths + new_len - p);
+    append_unique_line(merged, &merged_len, p, len);
+    p += len + (nl != NULL);
+  }
 
   /* Allocate new allowlist page in amfid */
   mach_vm_address_t new_page = remote_alloc(task, PAGE_SIZE,
